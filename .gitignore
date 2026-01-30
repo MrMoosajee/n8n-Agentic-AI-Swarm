@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+venv.bak/
+.idea/
+.vscode/
+.DS_Store
+.env
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints/

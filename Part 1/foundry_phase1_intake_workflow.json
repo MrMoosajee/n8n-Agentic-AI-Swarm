@@ -1,0 +1,246 @@
+{
+  "name": "Foundry Phase 1: Executive Intake (Universal)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f0b4c5d6-7890-4321-abcd-ef1234567890",
+      "name": "Chat Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "user_request",
+              "name": "user_request",
+              "value": "={{ $json.chatInput }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+      "name": "Extract Chat Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $credentials.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "={{ [{\"parts\": [{\"text\": \"You are the Liaison AI for The Foundry. Convert this user request into a clean JSON specification (MRS - Machine Readable Spec).\\n\\nUser Request: \" + $json.user_request + \"\\n\\nReturn ONLY valid JSON with these fields:\\n{\\n  \\\"project_name\\\": \\\"string\\\",\\n  \\\"description\\\": \\\"string\\\",\\n  \\\"requirements\\\": [\\\"array of strings\\\"],\\n  \\\"constraints\\\": {\\\"budget\\\": \\\"string\\\", \\\"timeline\\\": \\\"string\\\"},\\n  \\\"success_criteria\\\": [\\\"array of strings\\\"]\\n}\"}]}] }}"
+            },
+            {
+              "name": "generationConfig",
+              "value": "={{ {\"temperature\": 0.7, \"maxOutputTokens\": 2048, \"responseMimeType\": \"application/json\"} }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-6789-01ab-cdef-234567890abc",
+      "name": "Liaison: Gemini (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [690, 300],
+      "credentials": {
+        "googleApi": {
+          "id": "1",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Gemini response and parse JSON\nconst geminiResponse = $input.item.json;\nconst generatedText = geminiResponse.candidates[0].content.parts[0].text;\n\n// Parse the JSON response\nlet mrs;\ntry {\n  mrs = JSON.parse(generatedText);\n} catch (e) {\n  // If parsing fails, extract JSON from markdown code blocks\n  const jsonMatch = generatedText.match(/```json\\n([\\s\\S]*?)\\n```/) || generatedText.match(/```\\n([\\s\\S]*?)\\n```/);\n  if (jsonMatch) {\n    mrs = JSON.parse(jsonMatch[1]);\n  } else {\n    throw new Error('Failed to parse Gemini JSON response: ' + e.message);\n  }\n}\n\nreturn { json: { mrs: mrs } };"
+      },
+      "id": "c3d4e5f6-7890-12ab-cdef-34567890abcd",
+      "name": "Parse Gemini JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama-3.3-70b-versatile"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"You are the Strategist AI for The Foundry. Analyze the MRS and decide the optimal tech stack. Consider: performance, ecosystem maturity, zero-cost availability, and the user's constraints (Linux, 32GB RAM, no GPU).\\n\\nReturn ONLY valid JSON with this structure:\\n{\\n  \\\"recommended_stack\\\": {\\n    \\\"primary_language\\\": \\\"string\\\",\\n    \\\"framework\\\": \\\"string\\\",\\n    \\\"database\\\": \\\"string\\\",\\n    \\\"reasoning\\\": \\\"string\\\"\\n  },\\n  \\\"alternative_stacks\\\": []\\n}\"}, {\"role\": \"user\", \"content\": \"MRS: \" + JSON.stringify($json.mrs)}] }}"
+            },
+            {
+              "name": "temperature",
+              "value": "0.3"
+            },
+            {
+              "name": "max_tokens",
+              "value": "2048"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4e5f6a7-8901-23ab-cdef-4567890abcde",
+      "name": "Strategist: Groq Llama 3.3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1130, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Groq Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Groq response and parse JSON\nconst groqResponse = $input.item.json;\nconst generatedText = groqResponse.choices[0].message.content;\n\n// Parse the JSON response\nlet stackDecision;\ntry {\n  stackDecision = JSON.parse(generatedText);\n} catch (e) {\n  // If parsing fails, extract JSON from markdown code blocks\n  const jsonMatch = generatedText.match(/```json\\n([\\s\\S]*?)\\n```/) || generatedText.match(/```\\n([\\s\\S]*?)\\n```/);\n  if (jsonMatch) {\n    stackDecision = JSON.parse(jsonMatch[1]);\n  } else {\n    throw new Error('Failed to parse Groq JSON response: ' + e.message);\n  }\n}\n\n// Combine MRS with stack decision\nconst previousData = $('Parse Gemini JSON').item.json;\n\nreturn {\n  json: {\n    mrs: previousData.mrs,\n    stack_decision: stackDecision,\n    timestamp: new Date().toISOString(),\n    status: 'phase1_complete'\n  }\n};"
+      },
+      "id": "e5f6a7b8-9012-34ab-cdef-567890abcdef",
+      "name": "Combine Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_projects",
+          "mode": "list",
+          "cachedResultName": "foundry_projects"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_name": "={{ $json.mrs.project_name }}",
+            "mrs_data": "={{ JSON.stringify($json.mrs) }}",
+            "stack_decision": "={{ JSON.stringify($json.stack_decision) }}",
+            "status": "={{ $json.status }}",
+            "created_at": "={{ $json.timestamp }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "f6a7b8c9-0123-45ab-cdef-67890abcdef0",
+      "name": "Store in Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1570, 300],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Chat Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Chat Input": {
+      "main": [
+        [
+          {
+            "node": "Liaison: Gemini (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liaison: Gemini (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini JSON": {
+      "main": [
+        [
+          {
+            "node": "Strategist: Groq Llama 3.3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strategist: Groq Llama 3.3": {
+      "main": [
+        [
+          {
+            "node": "Combine Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Results": {
+      "main": [
+        [
+          {
+            "node": "Store in Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-28T00:00:00.000Z",
+  "versionId": "00000000-0000-0000-0000-000000000000"
+}

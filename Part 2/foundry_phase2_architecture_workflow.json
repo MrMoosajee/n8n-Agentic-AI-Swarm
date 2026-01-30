@@ -1,0 +1,544 @@
+{
+  "name": "Foundry Phase 2: Architecture Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Runs every 5 minutes to check for new projects"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  id,\n  project_name,\n  mrs_data,\n  stack_decision,\n  created_at\nFROM foundry_projects\nWHERE status = 'phase1_complete'\n  AND id NOT IN (\n    SELECT DISTINCT project_id \n    FROM foundry_blueprints \n    WHERE blueprint_type = 'file_tree'\n  )\nORDER BY priority DESC, created_at ASC\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "Fetch Next Project",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Get projects that completed Phase 1 but don't have blueprints yet"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "any",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "Project Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Stop if no projects need architecture"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare context for Architect AI\nconst project = $input.item.json;\nconst mrs = project.mrs_data;\nconst stack = project.stack_decision.recommended_stack;\n\n// Build comprehensive prompt\nconst architectPrompt = `You are the Architect AI for The Foundry. Your task is to design the complete file structure and technical architecture for this project.\n\nPROJECT: ${mrs.project_name}\nDESCRIPTION: ${mrs.description}\n\nREQUIREMENTS:\n${mrs.requirements.map((r, i) => `${i + 1}. ${r}`).join('\\n')}\n\nRECOMMENDED STACK:\n- Language: ${stack.primary_language}\n- Framework: ${stack.framework}\n- Database: ${stack.database}\n- Reasoning: ${stack.reasoning}\n\nCONSTRAINTS:\n- Budget: ${mrs.constraints.budget}\n- Timeline: ${mrs.constraints.timeline}\n- Hardware: Intel i3, 32GB RAM, No GPU (runs local Ollama)\n\nSUCCESS CRITERIA:\n${mrs.success_criteria.map((c, i) => `${i + 1}. ${c}`).join('\\n')}\n\nYour task: Generate a complete project architecture as valid JSON with this EXACT structure:\n\n{\n  \"file_tree\": {\n    \"root\": \"project_name\",\n    \"structure\": [\n      {\n        \"path\": \"src/\",\n        \"type\": \"directory\",\n        \"purpose\": \"Main source code\"\n      },\n      {\n        \"path\": \"src/main.${stack.primary_language === 'Python' ? 'py' : 'js'}\",\n        \"type\": \"file\",\n        \"purpose\": \"Application entry point\",\n        \"priority\": 1\n      }\n    ]\n  },\n  \"architecture\": {\n    \"layers\": [\n      {\n        \"name\": \"Presentation Layer\",\n        \"components\": [\"API endpoints\", \"Request validation\"],\n        \"tech\": \"${stack.framework}\"\n      }\n    ],\n    \"data_flow\": \"Description of how data moves through the system\",\n    \"security\": [\"List of security measures\"],\n    \"scalability\": \"How this will scale to meet requirements\"\n  },\n  \"dependencies\": [\n    {\n      \"name\": \"package_name\",\n      \"version\": \"1.0.0\",\n      \"purpose\": \"Why this is needed\"\n    }\n  ],\n  \"implementation_order\": [\n    {\n      \"phase\": 1,\n      \"files\": [\"List of files to create first\"],\n      \"estimated_complexity\": \"low/medium/high\"\n    }\n  ],\n  \"testing_strategy\": {\n    \"unit_tests\": \"Approach to unit testing\",\n    \"integration_tests\": \"Approach to integration testing\",\n    \"tools\": [\"pytest\", \"unittest\"]\n  }\n}\n\nIMPORTANT:\n- Include ALL necessary files (config, tests, docs, deployment)\n- Be specific about file purposes\n- Order files by implementation priority\n- Consider zero-cost deployment (Docker, local hosting)\n- Return ONLY valid JSON, no markdown, no preamble`;\n\nreturn {\n  json: {\n    project_id: project.id,\n    project_name: project.project_name,\n    prompt: architectPrompt,\n    mrs: mrs,\n    stack: stack\n  }\n};"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "Build Architect Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "notes": "Creates comprehensive context for Gemini"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $credentials.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "={{ [{\"parts\": [{\"text\": $json.prompt}]}] }}"
+            },
+            {
+              "name": "generationConfig",
+              "value": "={{ {\"temperature\": 0.4, \"maxOutputTokens\": 8192, \"responseMimeType\": \"application/json\"} }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000005",
+      "name": "Architect: Gemini Pro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 200],
+      "credentials": {
+        "googleApi": {
+          "id": "1",
+          "name": "Google Gemini API"
+        }
+      },
+      "notes": "Generates complete architecture blueprints"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and parse Gemini architecture response\nconst geminiResponse = $input.item.json;\nconst previousData = $('Build Architect Prompt').item.json;\n\nif (!geminiResponse.candidates || !geminiResponse.candidates[0]) {\n  throw new Error('Invalid Gemini response: ' + JSON.stringify(geminiResponse));\n}\n\nconst generatedText = geminiResponse.candidates[0].content.parts[0].text;\n\n// Parse the architecture JSON\nlet architecture;\ntry {\n  architecture = JSON.parse(generatedText);\n} catch (e) {\n  // Try extracting from markdown\n  const jsonMatch = generatedText.match(/```json\\n([\\s\\S]*?)\\n```/) || generatedText.match(/```\\n([\\s\\S]*?)\\n```/);\n  if (jsonMatch) {\n    architecture = JSON.parse(jsonMatch[1]);\n  } else {\n    // Try extracting from first { to last }\n    const start = generatedText.indexOf('{');\n    const end = generatedText.lastIndexOf('}') + 1;\n    if (start !== -1 && end > start) {\n      architecture = JSON.parse(generatedText.substring(start, end));\n    } else {\n      throw new Error('Failed to extract JSON from Gemini response: ' + e.message);\n    }\n  }\n}\n\n// Validate architecture structure\nif (!architecture.file_tree || !architecture.architecture || !architecture.dependencies) {\n  throw new Error('Architecture missing required fields: file_tree, architecture, or dependencies');\n}\n\n// Combine with project data\nreturn {\n  json: {\n    project_id: previousData.project_id,\n    project_name: previousData.project_name,\n    architecture: architecture,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000006",
+      "name": "Parse Architecture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "Extracts and validates architecture JSON"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_blueprints",
+          "mode": "list",
+          "cachedResultName": "foundry_blueprints"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "blueprint_type": "file_tree",
+            "content": "={{ JSON.stringify($json.architecture.file_tree) }}",
+            "version": "1"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000007",
+      "name": "Store File Tree",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 100],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Save file structure blueprint"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_blueprints",
+          "mode": "list",
+          "cachedResultName": "foundry_blueprints"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "blueprint_type": "architecture",
+            "content": "={{ JSON.stringify($json.architecture.architecture) }}",
+            "version": "1"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000008",
+      "name": "Store Architecture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 200],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Save system architecture"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_blueprints",
+          "mode": "list",
+          "cachedResultName": "foundry_blueprints"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "blueprint_type": "dependencies",
+            "content": "={{ JSON.stringify($json.architecture.dependencies) }}",
+            "version": "1"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000009",
+      "name": "Store Dependencies",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Save package requirements"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_blueprints",
+          "mode": "list",
+          "cachedResultName": "foundry_blueprints"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "blueprint_type": "implementation_plan",
+            "content": "={{ JSON.stringify($json.architecture.implementation_order) }}",
+            "version": "1"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000010",
+      "name": "Store Implementation Plan",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 400],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Save build order"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE foundry_projects\nSET status = 'phase2_complete',\n    updated_at = NOW()\nWHERE id = {{ $json.project_id }};",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000011",
+      "name": "Update Project Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 200],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Mark project ready for Phase 3 (Code Gen)"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": {
+          "__rl": true,
+          "value": "foundry_agent_log",
+          "mode": "list",
+          "cachedResultName": "foundry_agent_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $node[\"Parse Architecture\"].json.project_id }}",
+            "agent_role": "architect",
+            "action": "generate_blueprints",
+            "input_data": "={{ JSON.stringify({ project: $node[\"Parse Architecture\"].json.project_name }) }}",
+            "output_data": "={{ JSON.stringify({ blueprints_created: 4, timestamp: $node[\"Parse Architecture\"].json.timestamp }) }}",
+            "model_used": "gemini-1.5-pro",
+            "success": "true"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000012",
+      "name": "Log Architecture Activity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 340],
+      "credentials": {
+        "postgres": {
+          "id": "3",
+          "name": "Foundry DB"
+        }
+      },
+      "notes": "Audit trail for observability"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "completion_message",
+              "name": "message",
+              "value": "={{ \"Phase 2 Complete: Architecture generated for '\" + $json.project_name + \"'. Ready for Phase 3 (Code Generation).\" }}",
+              "type": "string"
+            },
+            {
+              "id": "project_details",
+              "name": "project_id",
+              "value": "={{ $json.project_id }}",
+              "type": "number"
+            },
+            {
+              "id": "blueprints_count",
+              "name": "blueprints_created",
+              "value": "4",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000013",
+      "name": "Success Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [2000, 200],
+      "notes": "Final output for monitoring"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "no_work_message",
+              "name": "message",
+              "value": "No projects pending Phase 2. All projects are either in progress or completed.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000014",
+      "name": "No Work Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [900, 400],
+      "notes": "Exit gracefully if no work"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Next Project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Next Project": {
+      "main": [
+        [
+          {
+            "node": "Project Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Project Found?": {
+      "main": [
+        [
+          {
+            "node": "Build Architect Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Work Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Architect Prompt": {
+      "main": [
+        [
+          {
+            "node": "Architect: Gemini Pro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Architect: Gemini Pro": {
+      "main": [
+        [
+          {
+            "node": "Parse Architecture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Architecture": {
+      "main": [
+        [
+          {
+            "node": "Store File Tree",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Architecture",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Dependencies",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Implementation Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store File Tree": {
+      "main": [
+        [
+          {
+            "node": "Update Project Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Architecture": {
+      "main": [
+        [
+          {
+            "node": "Update Project Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Dependencies": {
+      "main": [
+        [
+          {
+            "node": "Update Project Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Implementation Plan": {
+      "main": [
+        [
+          {
+            "node": "Update Project Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Status": {
+      "main": [
+        [
+          {
+            "node": "Log Architecture Activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Architecture Activity": {
+      "main": [
+        [
+          {
+            "node": "Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-28T00:00:00.000Z",
+  "versionId": "00000000-0000-0000-0000-000000000000"
+}
