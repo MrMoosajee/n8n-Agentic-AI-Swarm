@@ -1,8 +1,8 @@
 # ⚠️ PROPRIETARY ARCHITECTURE NOTICE
 
-**Copyright © 2026 [Your Name]. All Rights Reserved.**
+**Copyright © 2026 Shuaib Adams. All Rights Reserved.**
 
-The architectures, designs, workflows, "Machine Readable Spec" (MRS) protocols, and "Pentad Council" governance structures detailed in this repository are the exclusive intellectual property of [Your Name].
+The architectures, designs, workflows, "Machine Readable Spec" (MRS) protocols, and "Pentad Council" governance structures detailed in this repository are the exclusive intellectual property of Shuaib Adams.
 
 **Rights:**
 1. **Inspection:** You are granted a limited license to view this documentation for evaluation, educational, or hiring purposes only.
